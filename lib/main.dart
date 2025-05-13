@@ -30,7 +30,7 @@ class PdfViewerScreen extends StatefulWidget {
 }
 
 class _PdfViewerScreenState extends State<PdfViewerScreen> {
-  final String filePath = 'assets/pdfs/Updated_Passport_application_Narayana.pdf';
+  final String filePath = 'assets/pdfs/Get_Started_With_Smallpdf.pdf';
   bool _pdfExists = false;
   String _errorMessage = '';
 

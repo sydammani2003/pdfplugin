@@ -13,26 +13,40 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.widget.Scroller
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 class PdfView(context: Context) : View(context) {
     private var renderer: PdfRenderer? = null
-    private var page: PdfRenderer.Page? = null
+    private var pageCount = 0
+    private var currentPageIndex = 0
     private var scaleFactor = 1.0f
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
     private val gestureDetector = GestureDetector(context, GestureListener())
+    private val scroller = Scroller(context)
     
-    // For panning
+    // For panning and scrolling
     private var posX = 0f
     private var posY = 0f
     private var lastTouchX = 0f
     private var lastTouchY = 0f
     private var isDragging = false
     
-    // Bitmap cache for performance
-    private var cachedBitmap: Bitmap? = null
-    private var cacheScale = 0f
+    // Page rendering and caching
+    private val pageBitmaps = HashMap<Int, Bitmap>()
+    private val pageScales = HashMap<Int, Float>()
+    private val visiblePages = mutableSetOf<Int>()
+    
+    // Page dimensions
+    private val pageWidths = HashMap<Int, Int>()
+    private val pageHeights = HashMap<Int, Int>()
+    private var totalContentHeight = 0
+    
+    // Spacing between pages
+    private val pageSpacing = 20
     
     // Store PDF dimensions
     private var pdfWidth = 0
@@ -47,68 +61,107 @@ class PdfView(context: Context) : View(context) {
         flags = Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG
     }
     
-    // Render scale factor - increase this for higher quality
-    // 4x or even 8x for ultra-high quality (but uses more memory)
-    private var renderScale = 4
+    // Scrollbar paint settings
+    private val scrollbarPaint = Paint().apply {
+        color = 0x66666666  // Semitransparent gray
+        isAntiAlias = true
+    }
+    private val scrollbarWidth = 8
+    private val scrollbarMinHeight = 50
+    private var isScrollbarDragging = false
+    
+    // Render scale factor for quality
+    private var renderScale = 2
     
     // Maximum bitmap size to prevent out of memory errors
-    private val maxBitmapSize = 4096 // Typical GPU texture size limit
-
+    private val maxBitmapSize = 4096
+    
     // Screen fit mode
     private var fitToScreen = true
     private var initialScaleFactor = 1.0f
+    
+    // For tracking velocity for flinging
+    private var velocityTracker: android.view.VelocityTracker? = null
+    private val maxFlingVelocity = 8000
+    
+    // Off-screen page buffer (number of pages to keep in memory beyond visible ones)
+    private val offScreenPageBuffer = 1
 
     fun openPdf(filePath: String) {
-        val file = File(filePath)
-        val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        renderer = PdfRenderer(fd)
-        page = renderer?.openPage(0)
-        
-        // Store PDF dimensions
-        page?.let {
-            pdfWidth = it.width
-            pdfHeight = it.height
+        try {
+            val file = File(filePath)
+            val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(fd)
+            pageCount = renderer?.pageCount ?: 0
+            
+            // Clear existing resources
+            clearResources()
+            
+            // Reset position and scale
+            posX = 0f
+            posY = 0f
+            scaleFactor = 1.0f
+            currentPageIndex = 0
+            
+            // Measure all pages and calculate total height
+            calculatePageDimensions()
+            
+            invalidate()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    private fun calculatePageDimensions() {
+        totalContentHeight = 0
+        pdfWidth = 0
+        renderer?.let { pdfRenderer ->
+            for (i in 0 until pageCount) {
+                val page = pdfRenderer.openPage(i)
+                pageWidths[i] = page.width
+                pageHeights[i] = page.height
+                
+                // Update PDF width to be the maximum page width
+                pdfWidth = max(pdfWidth, page.width)
+                
+                // Add to total content height
+                if (i > 0) totalContentHeight += pageSpacing
+                totalContentHeight += page.height
+                
+                page.close()
+            }
         }
         
-        // Clear cache when opening new PDF
-        cachedBitmap?.recycle()
-        cachedBitmap = null
-        
-        // Reset position and scale
-        posX = 0f
-        posY = 0f
-        scaleFactor = 1.0f
-        
-        invalidate()
+        // Calculate pdfHeight as the sum of all page heights plus spacing
+        pdfHeight = totalContentHeight
+    }
+    
+    private fun clearResources() {
+        // Clean up all bitmap resources
+        for (bitmap in pageBitmaps.values) {
+            bitmap.recycle()
+        }
+        pageBitmaps.clear()
+        pageScales.clear()
+        visiblePages.clear()
     }
     
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         
-        // Calculate initial scale factor to fit the screen
-        page?.let {
-            val screenAspect = w.toFloat() / h.toFloat()
-            val pageAspect = it.width.toFloat() / it.height.toFloat()
-            
-            initialScaleFactor = if (pageAspect > screenAspect) {
-                // Fit to width
-                w.toFloat() / it.width.toFloat()
-            } else {
-                // Fit to height
-                h.toFloat() / it.height.toFloat()
-            }
+        // Calculate initial scale factor to fit the screen width
+        if (pdfWidth > 0) {
+            initialScaleFactor = w.toFloat() / pdfWidth.toFloat()
             
             // Apply initial scale if we're in fit to screen mode
             if (fitToScreen) {
                 scaleFactor = initialScaleFactor
                 
-                // Center PDF on screen
-                posX = (w - it.width * scaleFactor) / 2
-                posY = (h - it.height * scaleFactor) / 2
+                // Center PDF horizontally
+                posX = (w - pdfWidth * scaleFactor) / 2
                 
                 // Clear cache as scale changed
-                cachedBitmap?.recycle()
-                cachedBitmap = null
+                clearResources()
             }
         }
         
@@ -118,136 +171,360 @@ class PdfView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         
-        page?.let { currentPage ->
-            // Set the highest quality draw filter
-            canvas.setDrawFilter(PaintFlagsDrawFilter(0, 
-                Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG))
+        if (pageCount == 0) return
+        
+        // Set high quality drawing
+        canvas.setDrawFilter(PaintFlagsDrawFilter(0, 
+            Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG))
+        
+        // Calculate which pages are visible
+        calculateVisiblePages()
+        
+        // Render all visible pages
+        canvas.save()
+        canvas.translate(posX, posY)
+        
+        var currentY = 0f
+        
+        for (i in 0 until pageCount) {
+            val pageWidth = pageWidths[i] ?: continue
+            val pageHeight = pageHeights[i] ?: continue
             
-            // Calculate actual render scale based on current zoom
-            val effectiveScale = scaleFactor * renderScale
-            
-            // Check if we need to recreate the cached bitmap
-            if (cachedBitmap == null || cacheScale != effectiveScale) {
-                // Recycle old bitmap
-                cachedBitmap?.recycle()
-                
-                // Calculate render dimensions
-                var renderWidth = (currentPage.width * effectiveScale).toInt()
-                var renderHeight = (currentPage.height * effectiveScale).toInt()
-                
-                // Constrain to maximum size to prevent memory issues
-                if (renderWidth > maxBitmapSize || renderHeight > maxBitmapSize) {
-                    val scale = min(
-                        maxBitmapSize.toFloat() / renderWidth,
-                        maxBitmapSize.toFloat() / renderHeight
-                    )
-                    renderWidth = (renderWidth * scale).toInt()
-                    renderHeight = (renderHeight * scale).toInt()
+            // Draw page if it's in the visible set
+            if (i in visiblePages) {
+                // Make sure the page is rendered
+                if (!pageBitmaps.containsKey(i)) {
+                    renderPage(i)
                 }
                 
-                // Create high-resolution bitmap
-                cachedBitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
-                
-                // Create a matrix for scaling
-                val matrix = Matrix()
-                matrix.setScale(
-                    renderWidth.toFloat() / currentPage.width,
-                    renderHeight.toFloat() / currentPage.height
-                )
-                
-                // Render PDF page to high-resolution bitmap
-                currentPage.render(cachedBitmap!!, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                
-                cacheScale = effectiveScale
+                // Draw the page bitmap
+                pageBitmaps[i]?.let { bitmap ->
+                    val destWidth = pageWidth * scaleFactor
+                    val destHeight = pageHeight * scaleFactor
+                    
+                    val destRect = Rect(
+                        0,
+                        currentY.toInt(),
+                        destWidth.toInt(),
+                        (currentY + destHeight).toInt()
+                    )
+                    
+                    // Draw with high-quality settings
+                    canvas.drawBitmap(bitmap, null, destRect, paint)
+                }
             }
             
-            // Draw the cached high-resolution bitmap
-            cachedBitmap?.let { bitmap ->
-                canvas.save()
-                
-                // Apply translation for panning
-                canvas.translate(posX, posY)
-                
-                // Calculate destination size
-                val destWidth = currentPage.width * scaleFactor
-                val destHeight = currentPage.height * scaleFactor
-                
-                // Create destination rectangle
-                val destRect = Rect(0, 0, destWidth.toInt(), destHeight.toInt())
-                
-                // Draw with high-quality settings
-                canvas.drawBitmap(bitmap, null, destRect, paint)
-                
-                canvas.restore()
-            }
+            // Update Y position for next page
+            currentY += pageHeight * scaleFactor + pageSpacing * scaleFactor
         }
+        
+        canvas.restore()
+        
+        // Draw scrollbar
+        drawScrollbar(canvas)
+    }
+    
+    private fun drawScrollbar(canvas: Canvas) {
+        if (totalContentHeight * scaleFactor <= height) return // No need for scrollbar
+        
+        val scrollbarHeight = max(scrollbarMinHeight, 
+            (height * height / (totalContentHeight * scaleFactor)).toInt())
+        
+        val scrollableRange = totalContentHeight * scaleFactor - height
+        val scrollProgress = min(1f, max(0f, -posY / scrollableRange))
+        
+        val scrollbarY = (height - scrollbarHeight) * scrollProgress
+        
+        // Draw scrollbar track
+        val trackRect = Rect(
+            width - scrollbarWidth * 2, 
+            0, 
+            width, 
+            height
+        )
+        scrollbarPaint.alpha = 40
+        canvas.drawRect(trackRect, scrollbarPaint)
+        
+        // Draw scrollbar thumb
+        val thumbRect = Rect(
+            width - scrollbarWidth * 2,
+            scrollbarY.toInt(),
+            width,
+            (scrollbarY + scrollbarHeight).toInt()
+        )
+        scrollbarPaint.alpha = 120
+        canvas.drawRect(thumbRect, scrollbarPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Initialize velocity tracker if needed
+        if (velocityTracker == null && event.actionMasked == MotionEvent.ACTION_DOWN) {
+            velocityTracker = android.view.VelocityTracker.obtain()
+        }
+        
+        // Add movement to velocity tracker
+        velocityTracker?.addMovement(event)
+        
         // Let the gesture detectors handle the event
-        scaleDetector.onTouchEvent(event)
-        gestureDetector.onTouchEvent(event)
+        val scaleDetectorHandled = scaleDetector.onTouchEvent(event)
+        val gestureDetectorHandled = gestureDetector.onTouchEvent(event)
         
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // Stop scrolling animation
+                if (!scroller.isFinished) {
+                    scroller.abortAnimation()
+                }
+                
                 lastTouchX = event.x
                 lastTouchY = event.y
                 isDragging = true
+                
+                // Check if touching scrollbar
+                if (event.x > width - scrollbarWidth * 2) {
+                    isScrollbarDragging = true
+                    handleScrollbarDrag(event.y)
+                    return true
+                }
             }
             
             MotionEvent.ACTION_MOVE -> {
+                if (isScrollbarDragging) {
+                    handleScrollbarDrag(event.y)
+                    return true
+                }
+                
                 if (!scaleDetector.isInProgress && isDragging) {
                     val dx = event.x - lastTouchX
                     val dy = event.y - lastTouchY
                     
-                    // Only allow panning when zoomed in
+                    // Always allow vertical scrolling
+                    posY += dy
+                    
+                    // Only allow horizontal panning for zoomed content
                     if (scaleFactor > initialScaleFactor * 0.95f) {
                         posX += dx
-                        posY += dy
-                        
-                        // Apply constraints to prevent panning too far
-                        constrainPan()
-                        
-                        invalidate()
                     }
+                    
+                    // Apply constraints
+                    constrainPan()
                     
                     lastTouchX = event.x
                     lastTouchY = event.y
+                    
+                    invalidate()
                 }
             }
             
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 isDragging = false
+                isScrollbarDragging = false
+                
+                // Calculate velocity for fling
+                velocityTracker?.let { tracker ->
+                    tracker.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
+                    val yVelocity = tracker.yVelocity
+                    
+                    // Only fling if not zoomed in horizontally
+                    if (abs(scaleFactor - initialScaleFactor) < 0.1f) {
+                        fling(0, -yVelocity.toInt())
+                    }
+                }
+                
+                // Recycle velocity tracker
+                velocityTracker?.recycle()
+                velocityTracker = null
             }
         }
         
         return true
     }
     
-    private fun constrainPan() {
-        // Constrain panning to keep some part of the document visible
-        page?.let {
-            val scaledWidth = it.width * scaleFactor
-            val scaledHeight = it.height * scaleFactor
+    private fun handleScrollbarDrag(y: Float) {
+        // Calculate new scroll position based on scrollbar drag
+        val scrollableRange = totalContentHeight * scaleFactor - height
+        if (scrollableRange <= 0) return
+        
+        val scrollbarHeight = max(scrollbarMinHeight, 
+            (height * height / (totalContentHeight * scaleFactor)).toInt())
+        val availableScrollbarTrack = height - scrollbarHeight
+        
+        // Calculate new scroll progress (0-1)
+        val scrollProgress = (y - scrollbarHeight / 2).coerceIn(0f, availableScrollbarTrack.toFloat()) / availableScrollbarTrack
+        
+        // Apply new scroll position
+        posY = -scrollProgress * scrollableRange
+        constrainPan()
+        invalidate()
+    }
+    
+    fun fling(velocityX: Int, velocityY: Int) {
+        // Adjust fling distance based on scale factor
+        val scaledVelocityY = velocityY
+        
+        // Get current scroll position
+        val startX = -posX.toInt()
+        val startY = -posY.toInt()
+        
+        // Calculate fling boundaries
+        val minX = 0
+        val maxX = (pdfWidth * scaleFactor - width).toInt().coerceAtLeast(0)
+        val minY = 0
+        val maxY = (totalContentHeight * scaleFactor - height).toInt().coerceAtLeast(0)
+        
+        // Start scroller animation
+        scroller.fling(
+            startX, startY,
+            velocityX, scaledVelocityY,
+            minX, maxX,
+            minY, maxY
+        )
+        
+        // Request next frame to continue animation
+        postInvalidateOnAnimation()
+    }
+    
+    override fun computeScroll() {
+        if (scroller.computeScrollOffset()) {
+            // Update positions from scroller
+            posX = -scroller.currX.toFloat()
+            posY = -scroller.currY.toFloat()
             
-            // Limit horizontal panning
-            if (scaledWidth > width) {
-                // Document wider than screen - constrain to keep some part visible
-                posX = posX.coerceIn(-(scaledWidth - width / 2), width / 2.toFloat())
-            } else {
-                // Document narrower than screen - keep centered horizontally
-                posX = (width - scaledWidth) / 2
+            // Request next frame
+            postInvalidateOnAnimation()
+        }
+    }
+    
+    private fun constrainPan() {
+        // Always allow scrolling through pages vertically
+        val maxY = totalContentHeight * scaleFactor - height
+        if (maxY > 0) {
+            // Constrain vertical scroll within document bounds
+            posY = posY.coerceIn(-maxY, 0f)
+        } else {
+            // Center vertically if content is shorter than view
+            posY = (height - totalContentHeight * scaleFactor) / 2
+        }
+        
+        // For horizontal panning, keep content on screen
+        val maxX = pdfWidth * scaleFactor - width
+        if (maxX > 0) {
+            // Constrain horizontal pan
+            posX = posX.coerceIn(-maxX, 0f)
+        } else {
+            // Center horizontally
+            posX = (width - pdfWidth * scaleFactor) / 2
+        }
+    }
+    
+    private fun renderPage(pageIndex: Int, canvas: Canvas? = null) {
+        if (pageIndex < 0 || pageIndex >= pageCount || renderer == null) return
+        
+        // Check if we already have a bitmap at this scale
+        val currentScale = scaleFactor * renderScale
+        if (pageBitmaps.containsKey(pageIndex) && pageScales[pageIndex] == currentScale) {
+            return // Already rendered at current scale
+        }
+        
+        // Get page dimensions
+        val pageWidth = pageWidths[pageIndex] ?: return
+        val pageHeight = pageHeights[pageIndex] ?: return
+        
+        try {
+            // Calculate render dimensions
+            var renderWidth = (pageWidth * currentScale).toInt()
+            var renderHeight = (pageHeight * currentScale).toInt()
+            
+            // Constrain to maximum size to prevent memory issues
+            if (renderWidth > maxBitmapSize || renderHeight > maxBitmapSize) {
+                val scale = min(
+                    maxBitmapSize.toFloat() / renderWidth,
+                    maxBitmapSize.toFloat() / renderHeight
+                )
+                renderWidth = (renderWidth * scale).toInt()
+                renderHeight = (renderHeight * scale).toInt()
             }
             
-            // Limit vertical panning
-            if (scaledHeight > height) {
-                // Document taller than screen - constrain to keep some part visible
-                posY = posY.coerceIn(-(scaledHeight - height / 2), height / 2.toFloat())
-            } else {
-                // Document shorter than screen - keep centered vertically
-                posY = (height - scaledHeight) / 2
+            // Recycle old bitmap if it exists
+            pageBitmaps[pageIndex]?.recycle()
+            
+            // Create bitmap and render page
+            val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
+            renderer?.let { pdfRenderer ->
+                val page = pdfRenderer.openPage(pageIndex)
+                
+                // Create a matrix for scaling
+                val matrix = Matrix()
+                matrix.setScale(
+                    renderWidth.toFloat() / page.width,
+                    renderHeight.toFloat() / page.height
+                )
+                
+                // Render PDF page to bitmap
+                page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+                
+                // Store bitmap and scale
+                pageBitmaps[pageIndex] = bitmap
+                pageScales[pageIndex] = currentScale
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    // Calculate which pages are currently visible based on scroll position
+    private fun calculateVisiblePages() {
+        val newVisiblePages = mutableSetOf<Int>()
+        
+        if (pageCount == 0) return
+        
+        // Calculate visible area in document coordinates
+        val visibleTop = -posY / scaleFactor
+        val visibleBottom = (height - posY) / scaleFactor
+        
+        var currentY = 0
+        
+        for (i in 0 until pageCount) {
+            val pageHeight = pageHeights[i] ?: continue
+            val pageBottom = currentY + pageHeight
+            
+            // Check if this page is visible
+            if (pageBottom >= visibleTop && currentY <= visibleBottom) {
+                newVisiblePages.add(i)
+                
+                // Pre-render offscreen pages for smoother scrolling
+                for (j in max(0, i - offScreenPageBuffer)..min(pageCount - 1, i + offScreenPageBuffer)) {
+                    if (j != i && !pageBitmaps.containsKey(j)) {
+                        renderPage(j)
+                    }
+                }
+            }
+            
+            // Update for next page position
+            currentY = pageBottom + pageSpacing
+        }
+        
+        // Clean up pages that are no longer visible or nearby
+        val allNeededPages = mutableSetOf<Int>()
+        for (visiblePage in newVisiblePages) {
+            allNeededPages.add(visiblePage)
+            // Add buffer pages
+            for (i in max(0, visiblePage - offScreenPageBuffer)..min(pageCount - 1, visiblePage + offScreenPageBuffer)) {
+                allNeededPages.add(i)
             }
         }
+        
+        // Remove bitmaps that are no longer needed
+        val pagesToRemove = pageBitmaps.keys.filter { it !in allNeededPages }
+        for (pageIndex in pagesToRemove) {
+            pageBitmaps[pageIndex]?.recycle()
+            pageBitmaps.remove(pageIndex)
+            pageScales.remove(pageIndex)
+        }
+        
+        visiblePages.clear()
+        visiblePages.addAll(newVisiblePages)
     }
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -275,16 +552,13 @@ class PdfView(context: Context) : View(context) {
             // Apply constraints to panning
             constrainPan()
             
-            // Clear cache if scale changed significantly
-            if (kotlin.math.abs(scaleFactor - oldScale) > 0.1f) {
-                cachedBitmap?.recycle()
-                cachedBitmap = null
-            }
-            
             // Turn off fitToScreen mode when manually zooming
             if (kotlin.math.abs(scaleFactor - initialScaleFactor) > 0.1f) {
                 fitToScreen = false
             }
+            
+            // Clear cache as scale changed
+            clearResources()
             
             invalidate()
             return true
@@ -300,11 +574,10 @@ class PdfView(context: Context) : View(context) {
                 // Reset to screen-fitting scale
                 scaleFactor = initialScaleFactor
                 
-                // Center the PDF
-                page?.let {
-                    posX = (width - it.width * scaleFactor) / 2
-                    posY = (height - it.height * scaleFactor) / 2
-                }
+                // Center the PDF horizontally
+                posX = (width - pdfWidth * scaleFactor) / 2
+                
+                // Don't change vertical position to maintain reading location
             } else {
                 // Zoom to actual size (100%)
                 val targetScale = 1.0f // 1:1 pixel ratio
@@ -325,9 +598,11 @@ class PdfView(context: Context) : View(context) {
                 posY = focusY - unscaledFocusY * scaleFactor
             }
             
+            // Apply constraints to panning
+            constrainPan()
+            
             // Clear cache as scale changed
-            cachedBitmap?.recycle()
-            cachedBitmap = null
+            clearResources()
             
             invalidate()
             return true
@@ -338,15 +613,14 @@ class PdfView(context: Context) : View(context) {
             fitToScreen = true
             scaleFactor = initialScaleFactor
             
-            // Center the PDF
-            page?.let {
-                posX = (width - it.width * scaleFactor) / 2
-                posY = (height - it.height * scaleFactor) / 2
-            }
+            // Center the PDF horizontally
+            posX = (width - pdfWidth * scaleFactor) / 2
+            
+            // Apply constraints to panning
+            constrainPan()
             
             // Clear cache as scale changed
-            cachedBitmap?.recycle()
-            cachedBitmap = null
+            clearResources()
             
             invalidate()
         }
@@ -354,22 +628,19 @@ class PdfView(context: Context) : View(context) {
     
     // Clean up resources
     fun onDestroy() {
-        cachedBitmap?.recycle()
-        cachedBitmap = null
-        page?.close()
+        clearResources()
         renderer?.close()
     }
     
     // Optional: Method to adjust render quality dynamically
     fun setRenderQuality(quality: RenderQuality) {
-        cachedBitmap?.recycle()
-        cachedBitmap = null
         when (quality) {
             RenderQuality.LOW -> renderScale = 1
             RenderQuality.MEDIUM -> renderScale = 2
             RenderQuality.HIGH -> renderScale = 4
             RenderQuality.ULTRA -> renderScale = 8
         }
+        clearResources()
         invalidate()
     }
     
