@@ -12,6 +12,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Native PDF Viewer Plugin Demo',
       theme: ThemeData(
         primarySwatch: Colors.blue,
@@ -30,7 +31,7 @@ class PdfViewerScreen extends StatefulWidget {
 }
 
 class _PdfViewerScreenState extends State<PdfViewerScreen> {
-  final String filePath = 'assets/pdfs/Get_Started_With_Smallpdf.pdf';
+  final String filePath = 'assets/pdfs/Updated_Passport_application_Narayana.pdf';
   bool _pdfExists = false;
   String _errorMessage = '';
 
