@@ -83,7 +83,10 @@ class PdfViewWrapper(private val context: Context, filePath: String) : PlatformV
     }
 
     override fun getView(): View = pdfView
+
     override fun dispose() {
         Log.d(TAG, "Disposing PdfViewWrapper")
+        // Clean up resources when the view is disposed
+        (getView() as PdfView).onDestroy()
     }
 }

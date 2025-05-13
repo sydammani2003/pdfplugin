@@ -12,6 +12,7 @@ class NativePdfView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Only supported on Android for now
     if (defaultTargetPlatform == TargetPlatform.android) {
       return AndroidView(
         viewType: 'native_pdf_view',
@@ -20,11 +21,31 @@ class NativePdfView extends StatelessWidget {
           'filePath': filePath,
         },
         creationParamsCodec: const StandardMessageCodec(),
+        // Make sure the view takes all available space
+        gestureRecognizers: const {}, // Let the native view handle all gestures
       );
     }
 
     return const Center(
-      child: Text('Platform not supported'),
+      child: Padding(
+        padding: EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 48, color: Colors.red),
+            SizedBox(height: 16),
+            Text(
+              'Platform not supported',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'This PDF viewer is currently only available on Android.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -9,6 +9,7 @@ import android.graphics.Rect
 import android.graphics.Matrix
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -20,10 +21,22 @@ class PdfView(context: Context) : View(context) {
     private var page: PdfRenderer.Page? = null
     private var scaleFactor = 1.0f
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
+    private val gestureDetector = GestureDetector(context, GestureListener())
+    
+    // For panning
+    private var posX = 0f
+    private var posY = 0f
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
+    private var isDragging = false
     
     // Bitmap cache for performance
     private var cachedBitmap: Bitmap? = null
     private var cacheScale = 0f
+    
+    // Store PDF dimensions
+    private var pdfWidth = 0
+    private var pdfHeight = 0
     
     // High-quality paint settings
     private val paint = Paint().apply {
@@ -41,14 +54,64 @@ class PdfView(context: Context) : View(context) {
     // Maximum bitmap size to prevent out of memory errors
     private val maxBitmapSize = 4096 // Typical GPU texture size limit
 
+    // Screen fit mode
+    private var fitToScreen = true
+    private var initialScaleFactor = 1.0f
+
     fun openPdf(filePath: String) {
         val file = File(filePath)
         val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         renderer = PdfRenderer(fd)
         page = renderer?.openPage(0)
+        
+        // Store PDF dimensions
+        page?.let {
+            pdfWidth = it.width
+            pdfHeight = it.height
+        }
+        
         // Clear cache when opening new PDF
         cachedBitmap?.recycle()
         cachedBitmap = null
+        
+        // Reset position and scale
+        posX = 0f
+        posY = 0f
+        scaleFactor = 1.0f
+        
+        invalidate()
+    }
+    
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        
+        // Calculate initial scale factor to fit the screen
+        page?.let {
+            val screenAspect = w.toFloat() / h.toFloat()
+            val pageAspect = it.width.toFloat() / it.height.toFloat()
+            
+            initialScaleFactor = if (pageAspect > screenAspect) {
+                // Fit to width
+                w.toFloat() / it.width.toFloat()
+            } else {
+                // Fit to height
+                h.toFloat() / it.height.toFloat()
+            }
+            
+            // Apply initial scale if we're in fit to screen mode
+            if (fitToScreen) {
+                scaleFactor = initialScaleFactor
+                
+                // Center PDF on screen
+                posX = (w - it.width * scaleFactor) / 2
+                posY = (h - it.height * scaleFactor) / 2
+                
+                // Clear cache as scale changed
+                cachedBitmap?.recycle()
+                cachedBitmap = null
+            }
+        }
+        
         invalidate()
     }
 
@@ -102,6 +165,9 @@ class PdfView(context: Context) : View(context) {
             cachedBitmap?.let { bitmap ->
                 canvas.save()
                 
+                // Apply translation for panning
+                canvas.translate(posX, posY)
+                
                 // Calculate destination size
                 val destWidth = currentPage.width * scaleFactor
                 val destHeight = currentPage.height * scaleFactor
@@ -118,19 +184,96 @@ class PdfView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val result = scaleDetector.onTouchEvent(event)
-        // Only invalidate if scale changed
-        if (result) {
-            invalidate()
+        // Let the gesture detectors handle the event
+        scaleDetector.onTouchEvent(event)
+        gestureDetector.onTouchEvent(event)
+        
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                lastTouchX = event.x
+                lastTouchY = event.y
+                isDragging = true
+            }
+            
+            MotionEvent.ACTION_MOVE -> {
+                if (!scaleDetector.isInProgress && isDragging) {
+                    val dx = event.x - lastTouchX
+                    val dy = event.y - lastTouchY
+                    
+                    // Only allow panning when zoomed in
+                    if (scaleFactor > initialScaleFactor * 0.95f) {
+                        posX += dx
+                        posY += dy
+                        
+                        // Apply constraints to prevent panning too far
+                        constrainPan()
+                        
+                        invalidate()
+                    }
+                    
+                    lastTouchX = event.x
+                    lastTouchY = event.y
+                }
+            }
+            
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isDragging = false
+            }
         }
+        
         return true
+    }
+    
+    private fun constrainPan() {
+        // Constrain panning to keep some part of the document visible
+        page?.let {
+            val scaledWidth = it.width * scaleFactor
+            val scaledHeight = it.height * scaleFactor
+            
+            // Limit horizontal panning
+            if (scaledWidth > width) {
+                // Document wider than screen - constrain to keep some part visible
+                posX = posX.coerceIn(-(scaledWidth - width / 2), width / 2.toFloat())
+            } else {
+                // Document narrower than screen - keep centered horizontally
+                posX = (width - scaledWidth) / 2
+            }
+            
+            // Limit vertical panning
+            if (scaledHeight > height) {
+                // Document taller than screen - constrain to keep some part visible
+                posY = posY.coerceIn(-(scaledHeight - height / 2), height / 2.toFloat())
+            } else {
+                // Document shorter than screen - keep centered vertically
+                posY = (height - scaledHeight) / 2
+            }
+        }
     }
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             val oldScale = scaleFactor
+            
+            // Focus zoom on pinch center point
+            val focusX = detector.focusX
+            val focusY = detector.focusY
+            
+            // Save pre-scale values
+            val unscaledFocusX = (focusX - posX) / oldScale
+            val unscaledFocusY = (focusY - posY) / oldScale
+            
+            // Apply scale change
             scaleFactor *= detector.scaleFactor
-            scaleFactor = scaleFactor.coerceIn(0.5f, 10.0f) // Increased max zoom
+            
+            // Constrain scale
+            scaleFactor = scaleFactor.coerceIn(initialScaleFactor * 0.5f, initialScaleFactor * 10.0f)
+            
+            // Recalculate position to zoom into focus point
+            posX = focusX - unscaledFocusX * scaleFactor
+            posY = focusY - unscaledFocusY * scaleFactor
+            
+            // Apply constraints to panning
+            constrainPan()
             
             // Clear cache if scale changed significantly
             if (kotlin.math.abs(scaleFactor - oldScale) > 0.1f) {
@@ -138,7 +281,74 @@ class PdfView(context: Context) : View(context) {
                 cachedBitmap = null
             }
             
-            return scaleFactor != oldScale
+            // Turn off fitToScreen mode when manually zooming
+            if (kotlin.math.abs(scaleFactor - initialScaleFactor) > 0.1f) {
+                fitToScreen = false
+            }
+            
+            invalidate()
+            return true
+        }
+    }
+    
+    private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            // Double tap to toggle between fit-to-screen and 100% zoom
+            fitToScreen = !fitToScreen
+            
+            if (fitToScreen) {
+                // Reset to screen-fitting scale
+                scaleFactor = initialScaleFactor
+                
+                // Center the PDF
+                page?.let {
+                    posX = (width - it.width * scaleFactor) / 2
+                    posY = (height - it.height * scaleFactor) / 2
+                }
+            } else {
+                // Zoom to actual size (100%)
+                val targetScale = 1.0f // 1:1 pixel ratio
+                
+                // Focus zoom on tap location
+                val focusX = e.x
+                val focusY = e.y
+                
+                // Save pre-scale values
+                val unscaledFocusX = (focusX - posX) / scaleFactor
+                val unscaledFocusY = (focusY - posY) / scaleFactor
+                
+                // Apply new scale
+                scaleFactor = targetScale
+                
+                // Recalculate position to zoom into focus point
+                posX = focusX - unscaledFocusX * scaleFactor
+                posY = focusY - unscaledFocusY * scaleFactor
+            }
+            
+            // Clear cache as scale changed
+            cachedBitmap?.recycle()
+            cachedBitmap = null
+            
+            invalidate()
+            return true
+        }
+        
+        override fun onLongPress(e: MotionEvent) {
+            // Reset to fit-to-screen on long press
+            fitToScreen = true
+            scaleFactor = initialScaleFactor
+            
+            // Center the PDF
+            page?.let {
+                posX = (width - it.width * scaleFactor) / 2
+                posY = (height - it.height * scaleFactor) / 2
+            }
+            
+            // Clear cache as scale changed
+            cachedBitmap?.recycle()
+            cachedBitmap = null
+            
+            invalidate()
         }
     }
     
