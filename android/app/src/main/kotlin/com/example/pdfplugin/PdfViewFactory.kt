@@ -9,8 +9,8 @@ import io.flutter.plugin.common.StandardMessageCodec
 
 class PdfViewFactory(private val messenger: BinaryMessenger) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, id: Int, args: Any?): PlatformView {
-        val filePath = (args as? Map<*, *>)?.get("filePath") as? String ?: ""
-        Log.d("PdfViewFactory", "Creating PdfViewWrapper with filePath: $filePath")
-        return PdfViewWrapper(context, filePath)
+        Log.d("PdfViewFactory", "Creating PdfViewWrapper with args: $args")
+        @Suppress("UNCHECKED_CAST")
+        return PdfViewWrapper(context, id, args as? Map<String, Any>, messenger)
     }
 }

@@ -2,30 +2,133 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-class NativePdfView extends StatelessWidget {
-  final String filePath;
+class NativePdfView extends StatefulWidget {
+  /// Path to the PDF file (local asset or file path)
+  final String? filePath;
+  
+  /// URL of the PDF to load from the internet
+  final String? url;
+  
+  /// Optional placeholder widget to show while loading
+  final Widget? placeholder;
+  
+  /// Optional error widget to show when PDF loading fails
+  final Widget Function(String error)? errorBuilder;
 
   const NativePdfView({
     Key? key,
-    required this.filePath,
-  }) : super(key: key);
+    this.filePath,
+    this.url,
+    this.placeholder,
+    this.errorBuilder,
+  }) : assert(filePath != null || url != null, 'Either filePath or url must be provided'),
+       super(key: key);
+
+  @override
+  State<NativePdfView> createState() => _NativePdfViewState();
+}
+
+class _NativePdfViewState extends State<NativePdfView> {
+  bool _isLoading = true;
+  String? _errorMessage;
+  
+  @override
+  void initState() {
+    super.initState();
+    _isLoading = true;
+    _errorMessage = null;
+  }
 
   @override
   Widget build(BuildContext context) {
+    // If there's an error, show the error widget
+    if (_errorMessage != null) {
+      return widget.errorBuilder != null 
+          ? widget.errorBuilder!(_errorMessage!)
+          : _buildDefaultErrorView();
+    }
+    
     // Only supported on Android for now
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return AndroidView(
-        viewType: 'native_pdf_view',
-        layoutDirection: TextDirection.ltr,
-        creationParams: {
-          'filePath': filePath,
-        },
-        creationParamsCodec: const StandardMessageCodec(),
-        // Make sure the view takes all available space
-        gestureRecognizers: const {}, // Let the native view handle all gestures
+      return Stack(
+        children: [
+          AndroidView(
+            viewType: 'native_pdf_view',
+            layoutDirection: TextDirection.ltr,
+            creationParams: {
+              if (widget.filePath != null) 'filePath': widget.filePath,
+              if (widget.url != null) 'url': widget.url,
+            },
+            creationParamsCodec: const StandardMessageCodec(),
+            onPlatformViewCreated: _onPlatformViewCreated,
+            // Make sure the view takes all available space
+            gestureRecognizers: const {}, // Let the native view handle all gestures
+          ),
+          if (_isLoading && widget.placeholder != null)
+            widget.placeholder!,
+          if (_isLoading && widget.placeholder == null)
+            _buildDefaultLoadingView(),
+        ],
       );
     }
 
+    return _buildUnsupportedPlatformView();
+  }
+  
+  void _onPlatformViewCreated(int id) {
+    final channel = MethodChannel('native_pdf_view_$id');
+    
+    // Set up method call handler for events from native side
+    channel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'onPdfLoaded':
+          setState(() {
+            _isLoading = false;
+          });
+          break;
+        case 'onPdfError':
+          final error = call.arguments as String;
+          setState(() {
+            _isLoading = false;
+            _errorMessage = error;
+          });
+          break;
+      }
+    });
+  }
+  
+  Widget _buildDefaultLoadingView() {
+    return const Center(
+      child: CircularProgressIndicator(),
+    );
+  }
+  
+  Widget _buildDefaultErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 60),
+            const SizedBox(height: 16),
+            const Text(
+              'Error Loading PDF',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage ?? 'Unknown error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.red),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildUnsupportedPlatformView() {
     return const Center(
       child: Padding(
         padding: EdgeInsets.all(16.0),
