@@ -727,37 +727,50 @@ class PdfView @JvmOverloads constructor(
     
     // Text search functionality
     fun searchText(query: String, onResults: (Int, String?) -> Unit) {
-        searchQuery = query
-        executorService.execute {
-            try {
-                val results = mutableListOf<SearchResult>()
-                val document = pdfBoxDocument ?: return@execute
-                
-                for (pageIndex in 0 until document.numberOfPages) {
-                    val stripper = TextSearchStripper(query, pageIndex)
-                    stripper.startPage = pageIndex + 1
-                    stripper.endPage = pageIndex + 1
-                    stripper.getText(document)
-                    results.addAll(stripper.getSearchResults())
-                }
-                
+    // Validate search query
+    if (query.isBlank()) {
+        onResults(0, "Search query cannot be empty")
+        return
+    }
+    
+    searchQuery = query.trim() // Remove leading/trailing whitespace
+    executorService.execute {
+        try {
+            val results = mutableListOf<SearchResult>()
+            val document = pdfBoxDocument ?: run {
                 coroutineScope.launch {
-                    searchResults = results
-                    currentMatchIndex = 0
-                    onResults(results.size, null)
-                    if (results.isNotEmpty()) {
-                        navigateToMatch(0)
-                    }
-                    invalidate()
+                    onResults(0, "PDF document not loaded for text search")
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error searching text", e)
-                coroutineScope.launch {
-                    onResults(0, e.message)
+                return@execute
+            }
+            
+            for (pageIndex in 0 until document.numberOfPages) {
+                val stripper = TextSearchStripper(searchQuery!!, pageIndex)
+                stripper.startPage = pageIndex + 1
+                stripper.endPage = pageIndex + 1
+                
+                // Extract text from this page
+                stripper.getText(document)
+                results.addAll(stripper.getSearchResults())
+            }
+            
+            coroutineScope.launch {
+                searchResults = results
+                currentMatchIndex = 0
+                onResults(results.size, null)
+                if (results.isNotEmpty()) {
+                    navigateToMatch(0)
                 }
+                invalidate()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error searching text", e)
+            coroutineScope.launch {
+                onResults(0, "Search failed: ${e.message}")
             }
         }
     }
+}
     
     fun navigateToMatch(index: Int) {
         if (index < 0 || index >= searchResults.size) return
@@ -794,36 +807,87 @@ class PdfView @JvmOverloads constructor(
     
     // Custom text stripper for finding text positions
     private inner class TextSearchStripper(
-        private val searchQuery: String,
-        private val pageIndex: Int
-    ) : PDFTextStripper() {
-        private val searchResults = mutableListOf<SearchResult>()
-        private val queryLower = searchQuery.lowercase()
+    private val searchQuery: String,
+    private val pageIndex: Int
+) : PDFTextStripper() {
+    private val searchResults = mutableListOf<SearchResult>()
+    private val queryLower = searchQuery.lowercase()
+    private val textPositions = mutableListOf<TextPosition>()
+    private var allPageText = StringBuilder()
+    
+    override fun processTextPosition(text: TextPosition) {
+        // Collect all text positions for later processing
+        textPositions.add(text)
+        allPageText.append(text.unicode)
+        super.processTextPosition(text)
+    }
+    
+    override fun getText(document: PDDocument?): String {
+        // First collect all text
+        val result = super.getText(document)
         
-        override fun processTextPosition(text: TextPosition) {
-            val pageText = text.unicode
-            val pageLower = pageText.lowercase()
+        // Now search within the complete page text
+        findMatches()
+        
+        return result
+    }
+    
+    private fun findMatches() {
+        val pageText = allPageText.toString().lowercase()
+        var startIndex = 0
+        
+        // Find all occurrences of the search query
+        while (true) {
+            val foundIndex = pageText.indexOf(queryLower, startIndex)
+            if (foundIndex == -1) break
             
-            if (pageLower.contains(queryLower)) {
-                val x = text.xDirAdj
-                val y = text.yDirAdj
-                val width = text.widthDirAdj
-                val height = text.heightDir
-                
+            // Find the text positions that correspond to this match
+            val matchBounds = getTextBounds(foundIndex, foundIndex + queryLower.length)
+            
+            if (matchBounds != null) {
                 searchResults.add(
                     SearchResult(
                         pageIndex = pageIndex,
-                        text = pageText,
-                        bounds = RectF(x, y, x + width, y + height)
+                        text = allPageText.substring(foundIndex, foundIndex + queryLower.length),
+                        bounds = matchBounds
                     )
                 )
             }
             
-            super.processTextPosition(text)
+            startIndex = foundIndex + 1
         }
-        
-        fun getSearchResults(): List<SearchResult> = searchResults
     }
+    
+    private fun getTextBounds(startChar: Int, endChar: Int): RectF? {
+        if (textPositions.isEmpty() || startChar >= textPositions.size) return null
+        
+        var actualStart = startChar
+        var actualEnd = endChar.coerceAtMost(textPositions.size)
+        
+        // Handle case where we might be searching across word boundaries
+        // Ensure we don't go out of bounds
+        if (actualStart < 0) actualStart = 0
+        if (actualEnd > textPositions.size) actualEnd = textPositions.size
+        if (actualStart >= actualEnd) return null
+        
+        try {
+            val startPos = textPositions[actualStart]
+            val endPos = textPositions[actualEnd - 1]
+            
+            val left = startPos.xDirAdj
+            val top = startPos.yDirAdj - startPos.heightDir // Move to top of text
+            val right = endPos.xDirAdj + endPos.widthDirAdj
+            val bottom = endPos.yDirAdj
+            
+            return RectF(left, top, right, bottom)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error calculating text bounds", e)
+            return null
+        }
+    }
+    
+    fun getSearchResults(): List<SearchResult> = searchResults
+}
     
     // Optional: Method to adjust render quality dynamically
     fun setRenderQuality(quality: RenderQuality) {
