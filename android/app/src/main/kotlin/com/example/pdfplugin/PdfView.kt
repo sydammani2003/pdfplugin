@@ -3,23 +3,44 @@ package com.example.pdfplugin
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PaintFlagsDrawFilter
 import android.graphics.Rect
-import android.graphics.Matrix
+import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
+import android.util.AttributeSet
+import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.widget.Scroller
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-class PdfView(context: Context) : View(context) {
+class PdfView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : View(context, attrs, defStyleAttr) {
+    private val TAG = "PdfView"
+    
+    // Rendering and display properties
     private var renderer: PdfRenderer? = null
     private var pageCount = 0
     private var currentPageIndex = 0
@@ -86,10 +107,48 @@ class PdfView(context: Context) : View(context) {
     
     // Off-screen page buffer (number of pages to keep in memory beyond visible ones)
     private val offScreenPageBuffer = 1
+    
+    // Search functionality
+    private var pdfBoxDocument: PDDocument? = null
+    private val executorService = Executors.newSingleThreadExecutor()
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var searchQuery: String? = null
+    private var searchResults: List<SearchResult> = emptyList()
+    private var currentMatchIndex = 0
+    
+    // Search highlight paints
+    private val highlightPaint = Paint().apply {
+        color = Color.parseColor("#80FFFF00") // Semi-transparent yellow
+        style = Paint.Style.FILL
+    }
+    private val currentHighlightPaint = Paint().apply {
+        color = Color.parseColor("#80FF9500") // Semi-transparent orange for current match
+        style = Paint.Style.FILL
+    }
+    
+    init {
+        // Initialize PDFBox for text search
+        executorService.execute {
+            try {
+                PDFBoxResourceLoader.init(context)
+                Log.d(TAG, "PDFBox ResourceLoader initialized")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to initialize PDFBox", e)
+            }
+        }
+    }
+    
+    data class SearchResult(
+        val pageIndex: Int,
+        val text: String,
+        val bounds: RectF
+    )
 
     fun openPdf(filePath: String) {
         try {
             val file = File(filePath)
+            
+            // Open with Android's PdfRenderer for rendering
             val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             renderer = PdfRenderer(fd)
             pageCount = renderer?.pageCount ?: 0
@@ -105,6 +164,20 @@ class PdfView(context: Context) : View(context) {
             
             // Measure all pages and calculate total height
             calculatePageDimensions()
+            
+            // Also open with PDFBox for text search
+            executorService.execute {
+                try {
+                    if (!file.exists()) {
+                        Log.e(TAG, "PDF file not found: $filePath")
+                        return@execute
+                    }
+                    pdfBoxDocument?.close()
+                    pdfBoxDocument = PDDocument.load(file)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error opening PDF with PDFBox", e)
+                }
+            }
             
             invalidate()
         } catch (e: Exception) {
@@ -211,6 +284,11 @@ class PdfView(context: Context) : View(context) {
                     
                     // Draw with high-quality settings
                     canvas.drawBitmap(bitmap, null, destRect, paint)
+                    
+                    // Draw search highlights for this page
+                    if (searchQuery != null) {
+                        drawSearchHighlights(canvas, i, currentY)
+                    }
                 }
             }
             
@@ -222,6 +300,27 @@ class PdfView(context: Context) : View(context) {
         
         // Draw scrollbar
         drawScrollbar(canvas)
+    }
+    
+    private fun drawSearchHighlights(canvas: Canvas, pageIndex: Int, pageY: Float) {
+        // Draw highlights for search results on this page
+        val highlights = searchResults.filter { it.pageIndex == pageIndex }
+        
+        highlights.forEach { result ->
+            // Determine if this is the current match
+            val isCurrentMatch = searchResults.indexOf(result) == currentMatchIndex
+            val highlightPaintToUse = if (isCurrentMatch) currentHighlightPaint else highlightPaint
+            
+            // Scale the bounds to match current zoom level
+            val scaledBounds = RectF(
+                result.bounds.left * scaleFactor,
+                result.bounds.top * scaleFactor + pageY,
+                result.bounds.right * scaleFactor,
+                result.bounds.bottom * scaleFactor + pageY
+            )
+            
+            canvas.drawRect(scaledBounds, highlightPaintToUse)
+        }
     }
     
     private fun drawScrollbar(canvas: Canvas) {
@@ -626,10 +725,104 @@ class PdfView(context: Context) : View(context) {
         }
     }
     
-    // Clean up resources
-    fun onDestroy() {
-        clearResources()
-        renderer?.close()
+    // Text search functionality
+    fun searchText(query: String, onResults: (Int, String?) -> Unit) {
+        searchQuery = query
+        executorService.execute {
+            try {
+                val results = mutableListOf<SearchResult>()
+                val document = pdfBoxDocument ?: return@execute
+                
+                for (pageIndex in 0 until document.numberOfPages) {
+                    val stripper = TextSearchStripper(query, pageIndex)
+                    stripper.startPage = pageIndex + 1
+                    stripper.endPage = pageIndex + 1
+                    stripper.getText(document)
+                    results.addAll(stripper.getSearchResults())
+                }
+                
+                coroutineScope.launch {
+                    searchResults = results
+                    currentMatchIndex = 0
+                    onResults(results.size, null)
+                    if (results.isNotEmpty()) {
+                        navigateToMatch(0)
+                    }
+                    invalidate()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error searching text", e)
+                coroutineScope.launch {
+                    onResults(0, e.message)
+                }
+            }
+        }
+    }
+    
+    fun navigateToMatch(index: Int) {
+        if (index < 0 || index >= searchResults.size) return
+        
+        currentMatchIndex = index
+        val result = searchResults[index]
+        
+        // Calculate the y position of the page containing the match
+        var targetY = 0f
+        for (i in 0 until result.pageIndex) {
+            targetY += (pageHeights[i] ?: 0) + pageSpacing
+        }
+        
+        // Calculate position of the highlight within the page
+        val highlightY = targetY + result.bounds.top
+        
+        // Center the highlight in the view
+        val targetPosY = -(highlightY * scaleFactor - height / 2 + result.bounds.height() * scaleFactor / 2)
+        
+        // Animate scroll to position
+        val startY = -posY.toInt()
+        val endY = -targetPosY.toInt()
+        
+        scroller.startScroll(0, startY, 0, endY - startY, 500)
+        invalidate()
+    }
+    
+    fun clearSearch() {
+        searchQuery = null
+        searchResults = emptyList()
+        currentMatchIndex = 0
+        invalidate()
+    }
+    
+    // Custom text stripper for finding text positions
+    private inner class TextSearchStripper(
+        private val searchQuery: String,
+        private val pageIndex: Int
+    ) : PDFTextStripper() {
+        private val searchResults = mutableListOf<SearchResult>()
+        private val queryLower = searchQuery.lowercase()
+        
+        override fun processTextPosition(text: TextPosition) {
+            val pageText = text.unicode
+            val pageLower = pageText.lowercase()
+            
+            if (pageLower.contains(queryLower)) {
+                val x = text.xDirAdj
+                val y = text.yDirAdj
+                val width = text.widthDirAdj
+                val height = text.heightDir
+                
+                searchResults.add(
+                    SearchResult(
+                        pageIndex = pageIndex,
+                        text = pageText,
+                        bounds = RectF(x, y, x + width, y + height)
+                    )
+                )
+            }
+            
+            super.processTextPosition(text)
+        }
+        
+        fun getSearchResults(): List<SearchResult> = searchResults
     }
     
     // Optional: Method to adjust render quality dynamically
@@ -646,5 +839,15 @@ class PdfView(context: Context) : View(context) {
     
     enum class RenderQuality {
         LOW, MEDIUM, HIGH, ULTRA
+    }
+    
+    // Clean up resources
+    fun onDestroy() {
+        clearResources()
+        renderer?.close()
+        
+        coroutineScope.cancel()
+        executorService.shutdown()
+        pdfBoxDocument?.close()
     }
 }

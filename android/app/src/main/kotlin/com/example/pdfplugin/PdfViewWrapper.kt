@@ -28,6 +28,43 @@ class PdfViewWrapper(
         val filePath = args?.get("filePath") as? String
         val url = args?.get("url") as? String
         
+        // Set up method call handler
+        methodChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "searchText" -> {
+                    val query = call.argument<String>("query")
+                    if (query != null) {
+                        pdfView.searchText(query) { totalMatches, error ->
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                val results = mapOf(
+                                    "totalMatches" to totalMatches,
+                                    "error" to error
+                                )
+                                methodChannel.invokeMethod("onSearchResults", results)
+                            }
+                        }
+                        result.success(null)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Query is required", null)
+                    }
+                }
+                "navigateToMatch" -> {
+                    val index = call.argument<Int>("index")
+                    if (index != null) {
+                        pdfView.navigateToMatch(index)
+                        result.success(null)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Index is required", null)
+                    }
+                }
+                "clearSearch" -> {
+                    pdfView.clearSearch()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        
         if (url != null) {
             loadFromUrl(url)
         } else if (filePath != null) {
@@ -150,6 +187,6 @@ class PdfViewWrapper(
         Log.d(TAG, "Disposing PdfViewWrapper")
         // Clean up resources when the view is disposed
         executorService.shutdown()
-        (getView() as PdfView).onDestroy()
+        pdfView.onDestroy()
     }
 }
