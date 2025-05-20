@@ -1,3 +1,5 @@
+// ignore_for_file: use_key_in_widget_constructors, file_names, use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';

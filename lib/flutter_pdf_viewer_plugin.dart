@@ -1,3 +1,5 @@
+// ignore_for_file: unused_field
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,27 +7,27 @@ import 'package:flutter/services.dart';
 class NativePdfView extends StatefulWidget {
   /// Path to the PDF file (local asset or file path)
   final String? filePath;
- 
+
   /// URL of the PDF to load from the internet
   final String? url;
- 
+
   /// Optional placeholder widget to show while loading
   final Widget? placeholder;
- 
+
   /// Optional error widget to show when PDF loading fails
   final Widget Function(String error)? errorBuilder;
- 
+
   /// Search query to highlight in the PDF
   final String? searchQuery;
- 
+
   /// Current index of the search match to highlight
   final int currentMatchIndex;
- 
+
   /// Callback for search results changes
   final Function(int totalMatches, String? error)? onSearchResultsChanged;
 
   const NativePdfView({
-    Key? key,
+    super.key,
     this.filePath,
     this.url,
     this.placeholder,
@@ -33,8 +35,8 @@ class NativePdfView extends StatefulWidget {
     this.searchQuery,
     this.currentMatchIndex = 0,
     this.onSearchResultsChanged,
-  }) : assert(filePath != null || url != null, 'Either filePath or url must be provided'),
-       super(key: key);
+  })  : assert(filePath != null || url != null,
+            'Either filePath or url must be provided');
 
   @override
   State<NativePdfView> createState() => _NativePdfViewState();
@@ -45,23 +47,23 @@ class _NativePdfViewState extends State<NativePdfView> {
   String? _errorMessage;
   MethodChannel? _channel;
   int? _platformViewId;
- 
+
   @override
   void initState() {
     super.initState();
     _isLoading = true;
     _errorMessage = null;
   }
- 
+
   @override
   void didUpdateWidget(covariant NativePdfView oldWidget) {
     super.didUpdateWidget(oldWidget);
-   
+
     // If search query changed, update the native view
     if (widget.searchQuery != oldWidget.searchQuery) {
       _performSearch();
     }
-   
+
     // If current match index changed, navigate to it
     if (widget.currentMatchIndex != oldWidget.currentMatchIndex &&
         widget.searchQuery != null) {
@@ -77,7 +79,7 @@ class _NativePdfViewState extends State<NativePdfView> {
           ? widget.errorBuilder!(_errorMessage!)
           : _buildDefaultErrorView();
     }
-   
+
     // Only supported on Android for now
     if (defaultTargetPlatform == TargetPlatform.android) {
       return Stack(
@@ -94,8 +96,7 @@ class _NativePdfViewState extends State<NativePdfView> {
             // Make sure the view takes all available space
             gestureRecognizers: const {}, // Let the native view handle all gestures
           ),
-          if (_isLoading && widget.placeholder != null)
-            widget.placeholder!,
+          if (_isLoading && widget.placeholder != null) widget.placeholder!,
           if (_isLoading && widget.placeholder == null)
             _buildDefaultLoadingView(),
         ],
@@ -104,11 +105,11 @@ class _NativePdfViewState extends State<NativePdfView> {
 
     return _buildUnsupportedPlatformView();
   }
- 
+
   void _onPlatformViewCreated(int id) {
     _platformViewId = id;
     _channel = MethodChannel('native_pdf_view_$id');
-   
+
     // Set up method call handler for events from native side
     _channel!.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -137,29 +138,29 @@ class _NativePdfViewState extends State<NativePdfView> {
       }
     });
   }
- 
+
   void _performSearch() {
     if (_channel == null || widget.searchQuery == null) return;
-   
+
     _channel!.invokeMethod('searchText', {
       'query': widget.searchQuery,
     });
   }
- 
+
   void _navigateToMatch() {
     if (_channel == null || widget.searchQuery == null) return;
-   
+
     _channel!.invokeMethod('navigateToMatch', {
       'index': widget.currentMatchIndex,
     });
   }
- 
+
   Widget _buildDefaultLoadingView() {
     return const Center(
       child: CircularProgressIndicator(),
     );
   }
- 
+
   Widget _buildDefaultErrorView() {
     return Center(
       child: Padding(
@@ -184,7 +185,7 @@ class _NativePdfViewState extends State<NativePdfView> {
       ),
     );
   }
- 
+
   Widget _buildUnsupportedPlatformView() {
     return const Center(
       child: Padding(
