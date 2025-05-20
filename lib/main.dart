@@ -136,6 +136,9 @@ class _LocalPdfViewerScreenState extends State<LocalPdfViewerScreen> {
   String? _searchQuery;
   int _totalMatches = 0;
   int _currentMatchIndex = 0;
+  String? _annotationMode; // "draw", "highlight", "erase"
+  int _annotationColor = 0xFFFF0000;
+  double _annotationStrokeWidth = 6.0;
 
   @override
   void initState() {
@@ -218,14 +221,36 @@ class _LocalPdfViewerScreenState extends State<LocalPdfViewerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Local PDF Viewer'),
-        actions: _searchQuery != null
-            ? [
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: _clearSearch,
-                ),
-              ]
-            : null,
+        actions: [
+          if (_searchQuery != null)
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: _clearSearch,
+            ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              setState(() {
+                if (value == 'draw' || value == 'highlight' || value == 'erase') {
+                  _annotationMode = value;
+                } else if (value == 'clear') {
+                  _annotationMode = null;
+                  // Clear annotations via method channel
+                  // Use a key or state management to call clearAnnotations on NativePdfView
+                } else {
+                  _annotationMode = null;
+                }
+              });
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'draw', child: Text('Draw')),
+              const PopupMenuItem(value: 'highlight', child: Text('Highlight')),
+              const PopupMenuItem(value: 'erase', child: Text('Erase')),
+              const PopupMenuItem(value: 'clear', child: Text('Clear All')),
+              const PopupMenuItem(value: 'none', child: Text('Disable Annotation')),
+            ],
+            icon: const Icon(Icons.edit),
+          ),
+        ],
       ),
       body: _buildBody(),
       floatingActionButton: _pdfExists
@@ -269,6 +294,10 @@ class _LocalPdfViewerScreenState extends State<LocalPdfViewerScreen> {
             }
           });
         },
+        annotationMode: _annotationMode,
+        annotationColor: _annotationColor,
+        annotationStrokeWidth: _annotationStrokeWidth,
+        // Add a key and expose clearAnnotations if you want to clear from Flutter
         placeholder: const Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,

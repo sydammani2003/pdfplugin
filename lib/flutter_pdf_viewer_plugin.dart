@@ -26,6 +26,18 @@ class NativePdfView extends StatefulWidget {
   /// Callback for search results changes
   final Function(int totalMatches, String? error)? onSearchResultsChanged;
 
+  /// Annotation mode: "draw", "highlight", "erase", or null
+  final String? annotationMode;
+
+  /// Annotation color (ARGB format)
+  final int? annotationColor;
+
+  /// Annotation stroke width
+  final double? annotationStrokeWidth;
+
+  /// Callback invoked when annotations are cleared
+  final VoidCallback? onAnnotationClear;
+
   const NativePdfView({
     super.key,
     this.filePath,
@@ -35,6 +47,10 @@ class NativePdfView extends StatefulWidget {
     this.searchQuery,
     this.currentMatchIndex = 0,
     this.onSearchResultsChanged,
+    this.annotationMode,
+    this.annotationColor,
+    this.annotationStrokeWidth,
+    this.onAnnotationClear,
   })  : assert(filePath != null || url != null,
             'Either filePath or url must be provided');
 
@@ -68,6 +84,13 @@ class _NativePdfViewState extends State<NativePdfView> {
     if (widget.currentMatchIndex != oldWidget.currentMatchIndex &&
         widget.searchQuery != null) {
       _navigateToMatch();
+    }
+
+    // Annotation mode change
+    if (widget.annotationMode != oldWidget.annotationMode ||
+        widget.annotationColor != oldWidget.annotationColor ||
+        widget.annotationStrokeWidth != oldWidget.annotationStrokeWidth) {
+      _setAnnotationMode();
     }
   }
 
@@ -153,6 +176,20 @@ class _NativePdfViewState extends State<NativePdfView> {
     _channel!.invokeMethod('navigateToMatch', {
       'index': widget.currentMatchIndex,
     });
+  }
+
+  void _setAnnotationMode() {
+    if (_channel == null) return;
+    _channel!.invokeMethod('setAnnotationMode', {
+      'mode': widget.annotationMode ?? 'none',
+      'color': widget.annotationColor,
+      'strokeWidth': widget.annotationStrokeWidth,
+    });
+  }
+
+  void clearAnnotations() {
+    _channel?.invokeMethod('clearAnnotations');
+    widget.onAnnotationClear?.call();
   }
 
   Widget _buildDefaultLoadingView() {

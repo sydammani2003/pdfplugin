@@ -126,6 +126,20 @@ class PdfView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     
+    // Annotation data classes
+    sealed class Annotation {
+        data class Path(val points: MutableList<Pair<Float, Float>>, val color: Int, val strokeWidth: Float) : Annotation()
+        data class Highlight(val rect: RectF, val color: Int) : Annotation()
+    }
+
+    private val annotations = mutableListOf<Annotation>()
+    private var currentPath: Annotation.Path? = null
+    private var annotationMode: AnnotationMode = AnnotationMode.NONE
+
+    enum class AnnotationMode { NONE, DRAW, HIGHLIGHT, ERASE }
+    private var annotationColor: Int = Color.RED
+    private var annotationStrokeWidth: Float = 6f
+    
     init {
         // Initialize PDFBox for text search
         executorService.execute {
@@ -300,6 +314,9 @@ class PdfView @JvmOverloads constructor(
         
         // Draw scrollbar
         drawScrollbar(canvas)
+
+        // Draw annotations overlay
+        drawAnnotations(canvas)
     }
     
     private fun drawSearchHighlights(canvas: Canvas, pageIndex: Int, pageY: Float) {
@@ -353,6 +370,62 @@ class PdfView @JvmOverloads constructor(
         )
         scrollbarPaint.alpha = 120
         canvas.drawRect(thumbRect, scrollbarPaint)
+    }
+
+    private fun drawAnnotations(canvas: Canvas) {
+        canvas.save()
+        canvas.translate(posX, posY)
+        // Draw all annotations
+        for (ann in annotations) {
+            when (ann) {
+                is Annotation.Path -> {
+                    val paint = Paint().apply {
+                        color = ann.color
+                        style = Paint.Style.STROKE
+                        strokeWidth = ann.strokeWidth * scaleFactor
+                        isAntiAlias = true
+                    }
+                    val path = android.graphics.Path()
+                    ann.points.forEachIndexed { i, pt ->
+                        val x = pt.first * scaleFactor
+                        val y = pt.second * scaleFactor
+                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    canvas.drawPath(path, paint)
+                }
+                is Annotation.Highlight -> {
+                    val paint = Paint().apply {
+                        color = ann.color
+                        style = Paint.Style.FILL
+                        alpha = 80
+                    }
+                    val rect = RectF(
+                        ann.rect.left * scaleFactor,
+                        ann.rect.top * scaleFactor,
+                        ann.rect.right * scaleFactor,
+                        ann.rect.bottom * scaleFactor
+                    )
+                    canvas.drawRect(rect, paint)
+                }
+            }
+        }
+        // Draw current drawing path
+        currentPath?.let { ann ->
+            val paint = Paint().apply {
+                color = ann.color
+                style = Paint.Style.STROKE
+                strokeWidth = ann.strokeWidth * scaleFactor
+                isAntiAlias = true
+            }
+            val path = android.graphics.Path()
+            ann.points.forEachIndexed { i, pt ->
+                val x = pt.first * scaleFactor
+                val y = pt.second * scaleFactor
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            canvas.drawPath(path, paint)
+        }
+        canvas.restore()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -434,6 +507,12 @@ class PdfView @JvmOverloads constructor(
                 velocityTracker?.recycle()
                 velocityTracker = null
             }
+        }
+        
+        // Add annotation mode logic
+        if (annotationMode != AnnotationMode.NONE) {
+            handleAnnotationTouch(event)
+            return true
         }
         
         return true
@@ -913,5 +992,94 @@ class PdfView @JvmOverloads constructor(
         coroutineScope.cancel()
         executorService.shutdown()
         pdfBoxDocument?.close()
+    }
+
+    // --- Annotation touch logic ---
+    private fun handleAnnotationTouch(event: MotionEvent) {
+        val x = (event.x - posX) / scaleFactor
+        val y = (event.y - posY) / scaleFactor
+        when (annotationMode) {
+            AnnotationMode.DRAW -> {
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        currentPath = Annotation.Path(mutableListOf(Pair(x, y)), annotationColor, annotationStrokeWidth)
+                        invalidate()
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        currentPath?.points?.add(Pair(x, y))
+                        invalidate()
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        currentPath?.let { annotations.add(it) }
+                        currentPath = null
+                        invalidate()
+                    }
+                }
+            }
+            AnnotationMode.HIGHLIGHT -> {
+                // Drag to select rectangle
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        currentPath = Annotation.Path(mutableListOf(Pair(x, y)), Color.TRANSPARENT, 0f)
+                    }
+                    MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
+                        currentPath?.let {
+                            if (it.points.size == 1) it.points.add(Pair(x, y))
+                            else it.points[1] = Pair(x, y)
+                            if (event.action == MotionEvent.ACTION_UP) {
+                                val p1 = it.points[0]
+                                val p2 = it.points[1]
+                                annotations.add(
+                                    Annotation.Highlight(
+                                        RectF(
+                                            minOf(p1.first, p2.first),
+                                            minOf(p1.second, p2.second),
+                                            maxOf(p1.first, p2.first),
+                                            maxOf(p1.second, p2.second)
+                                        ),
+                                        Color.YELLOW
+                                    )
+                                )
+                                currentPath = null
+                            }
+                        }
+                        invalidate()
+                    }
+                }
+            }
+            AnnotationMode.ERASE -> {
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    // Remove annotation if touch is close to any annotation path/highlight
+                    val touchRadius = 20 / scaleFactor
+                    annotations.removeAll { ann ->
+                        when (ann) {
+                            is Annotation.Path -> ann.points.any { pt ->
+                                (pt.first - x).let { dx -> (pt.second - y).let { dy -> dx * dx + dy * dy < touchRadius * touchRadius } }
+                            }
+                            is Annotation.Highlight -> ann.rect.contains(x, y)
+                        }
+                    }
+                    invalidate()
+                }
+            }
+            else -> {}
+        }
+    }
+
+    // --- Methods to set annotation mode from Flutter ---
+    fun setAnnotationMode(mode: String, color: Int?, strokeWidth: Float?) {
+        annotationMode = when (mode) {
+            "draw" -> AnnotationMode.DRAW
+            "highlight" -> AnnotationMode.HIGHLIGHT
+            "erase" -> AnnotationMode.ERASE
+            else -> AnnotationMode.NONE
+        }
+        color?.let { annotationColor = it }
+        strokeWidth?.let { annotationStrokeWidth = it }
+    }
+
+    fun clearAnnotations() {
+        annotations.clear()
+        invalidate()
     }
 }

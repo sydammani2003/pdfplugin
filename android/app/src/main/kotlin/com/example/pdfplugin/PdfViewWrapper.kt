@@ -61,6 +61,29 @@ class PdfViewWrapper(
                     pdfView.clearSearch()
                     result.success(null)
                 }
+                "setAnnotationMode" -> {
+                    val mode = call.argument<String>("mode") ?: "none"
+                    val colorAny = call.argument<Any>("color")
+                    val strokeWidthAny = call.argument<Any>("strokeWidth")
+                    val color = when (colorAny) {
+                        is Int -> colorAny
+                        is Long -> colorAny.toInt()
+                        else -> null
+                    }
+                    val strokeWidth = when (strokeWidthAny) {
+                        is Double -> strokeWidthAny.toFloat()
+                        is Float -> strokeWidthAny
+                        is Int -> strokeWidthAny.toFloat()
+                        is Long -> strokeWidthAny.toFloat()
+                        else -> null
+                    }
+                    pdfView.setAnnotationMode(mode, color, strokeWidth)
+                    result.success(null)
+                }
+                "clearAnnotations" -> {
+                    pdfView.clearAnnotations()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
