@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pdfplugin/Mdarticle.dart';
+
 import 'flutter_pdf_viewer_plugin.dart';
 
 void main() {
@@ -54,13 +54,7 @@ class PdfViewerHomeScreen extends StatelessWidget {
               Icons.cloud_download,
               () => _openUrlPdf(context, pdfUrl), // Directly pass the URL here
             ),
-            const SizedBox(height: 16),
-            _buildCard(
-              'View Article',
-              'Open a Markdown Article',
-              Icons.cloud_download,
-              () =>_openMdAr(context) , // Directly pass the URL here
-            ),
+          
           ],
         ),
       ),
@@ -112,14 +106,7 @@ class PdfViewerHomeScreen extends StatelessWidget {
     );
   }
 
-  void _openMdAr(BuildContext context) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => Mdarticle(),
-      ),
-    );
-  }
+  
 }
 
 class LocalPdfViewerScreen extends StatefulWidget {
