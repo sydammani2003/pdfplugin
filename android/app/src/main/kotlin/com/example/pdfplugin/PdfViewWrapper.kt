@@ -17,7 +17,14 @@ class PdfViewWrapper(
     private val args: Map<String, Any>?, 
     private val messenger: io.flutter.plugin.common.BinaryMessenger
 ) : PlatformView {
-    private val pdfView = PdfView(context)
+    private val pdfView = PdfView(
+        context,
+        null,
+        0,
+        args?.get("enableAnnotations") as? Boolean ?: true,
+        args?.get("enableTextSearch") as? Boolean ?: true,
+        args?.get("enablePanAndZoom") as? Boolean ?: true
+    )
     private val TAG = "PdfViewWrapper"
     private val methodChannel = MethodChannel(messenger, "native_pdf_view_$id")
     private val executorService = Executors.newSingleThreadExecutor()

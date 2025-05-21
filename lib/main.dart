@@ -9,7 +9,7 @@ void main() {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
- 
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -28,7 +28,8 @@ class PdfViewerHomeScreen extends StatelessWidget {
   const PdfViewerHomeScreen({super.key});
 
   // Define your PDF URL directly here
-  final String pdfUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+  final String pdfUrl =
+      'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
 
   @override
   Widget build(BuildContext context) {
@@ -54,14 +55,14 @@ class PdfViewerHomeScreen extends StatelessWidget {
               Icons.cloud_download,
               () => _openUrlPdf(context, pdfUrl), // Directly pass the URL here
             ),
-          
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCard(String title, String subtitle, IconData icon, VoidCallback onTap) {
+  Widget _buildCard(
+      String title, String subtitle, IconData icon, VoidCallback onTap) {
     return Card(
       elevation: 4,
       child: InkWell(
@@ -74,7 +75,8 @@ class PdfViewerHomeScreen extends StatelessWidget {
               const SizedBox(height: 16),
               Text(
                 title,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
@@ -105,8 +107,6 @@ class PdfViewerHomeScreen extends StatelessWidget {
       ),
     );
   }
-
-  
 }
 
 class LocalPdfViewerScreen extends StatefulWidget {
@@ -117,7 +117,8 @@ class LocalPdfViewerScreen extends StatefulWidget {
 }
 
 class _LocalPdfViewerScreenState extends State<LocalPdfViewerScreen> {
-  final String filePath = 'assets/pdfs/Updated_Passport_application_Narayana.pdf';
+  final String filePath =
+      'assets/pdfs/Updated_Passport_application_Narayana.pdf';
   bool _pdfExists = false;
   String _errorMessage = '';
   String? _searchQuery;
@@ -217,7 +218,9 @@ class _LocalPdfViewerScreenState extends State<LocalPdfViewerScreen> {
           PopupMenuButton<String>(
             onSelected: (value) {
               setState(() {
-                if (value == 'draw' || value == 'highlight' || value == 'erase') {
+                if (value == 'draw' ||
+                    value == 'highlight' ||
+                    value == 'erase') {
                   _annotationMode = value;
                 } else if (value == 'clear') {
                   _annotationMode = null;
@@ -284,7 +287,9 @@ class _LocalPdfViewerScreenState extends State<LocalPdfViewerScreen> {
         annotationMode: _annotationMode,
         annotationColor: _annotationColor,
         annotationStrokeWidth: _annotationStrokeWidth,
-        // Add a key and expose clearAnnotations if you want to clear from Flutter
+        enableTextSearch: true,
+        enablePanAndZoom: true,
+        enableAnnotations: true,
         placeholder: const Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,

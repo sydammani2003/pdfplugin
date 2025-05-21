@@ -36,7 +36,10 @@ import kotlin.math.min
 class PdfView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = 0
+    defStyleAttr: Int = 0,
+    private val enableAnnotations: Boolean = true,
+    private val enableTextSearch: Boolean = true,
+    private val enablePanAndZoom: Boolean = true
 ) : View(context, attrs, defStyleAttr) {
     private val TAG = "PdfView"
     
@@ -429,6 +432,10 @@ class PdfView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!enablePanAndZoom) {
+            return false
+        }
+
         // Initialize velocity tracker if needed
         if (velocityTracker == null && event.actionMasked == MotionEvent.ACTION_DOWN) {
             velocityTracker = android.view.VelocityTracker.obtain()
@@ -511,8 +518,11 @@ class PdfView @JvmOverloads constructor(
         
         // Add annotation mode logic
         if (annotationMode != AnnotationMode.NONE) {
-            handleAnnotationTouch(event)
-            return true
+            if (enableAnnotations) {
+                handleAnnotationTouch(event)
+                return true
+            }
+            return false
         }
         
         return true
@@ -806,8 +816,13 @@ class PdfView @JvmOverloads constructor(
     
     // Text search functionality
     fun searchText(query: String, onResults: (Int, String?) -> Unit) {
-    // Validate search query
-    if (query.isBlank()) {
+        if (!enableTextSearch) {
+            onResults(0, "Text search is disabled")
+            return
+        }
+
+        // Validate search query
+        if (query.isBlank()) {
         onResults(0, "Search query cannot be empty")
         return
     }
@@ -996,6 +1011,10 @@ class PdfView @JvmOverloads constructor(
 
     // --- Annotation touch logic ---
     private fun handleAnnotationTouch(event: MotionEvent) {
+        if (!enableAnnotations) {
+            return
+        }
+
         val x = (event.x - posX) / scaleFactor
         val y = (event.y - posY) / scaleFactor
         when (annotationMode) {
@@ -1068,6 +1087,11 @@ class PdfView @JvmOverloads constructor(
 
     // --- Methods to set annotation mode from Flutter ---
     fun setAnnotationMode(mode: String, color: Int?, strokeWidth: Float?) {
+        if (!enableAnnotations) {
+            annotationMode = AnnotationMode.NONE
+            return
+        }
+
         annotationMode = when (mode) {
             "draw" -> AnnotationMode.DRAW
             "highlight" -> AnnotationMode.HIGHLIGHT

@@ -38,6 +38,15 @@ class NativePdfView extends StatefulWidget {
   /// Callback invoked when annotations are cleared
   final VoidCallback? onAnnotationClear;
 
+  /// Enable or disable text search
+  final bool enableTextSearch;
+
+  /// Enable or disable pan and pinch zoom
+  final bool enablePanAndZoom;
+
+  /// Enable or disable annotations
+  final bool enableAnnotations;
+
   const NativePdfView({
     super.key,
     this.filePath,
@@ -51,6 +60,9 @@ class NativePdfView extends StatefulWidget {
     this.annotationColor,
     this.annotationStrokeWidth,
     this.onAnnotationClear,
+    this.enableTextSearch = true,
+    this.enablePanAndZoom = true,
+    this.enableAnnotations = true,
   })  : assert(filePath != null || url != null,
             'Either filePath or url must be provided');
 
@@ -113,11 +125,13 @@ class _NativePdfViewState extends State<NativePdfView> {
             creationParams: {
               if (widget.filePath != null) 'filePath': widget.filePath,
               if (widget.url != null) 'url': widget.url,
+              'enableTextSearch': widget.enableTextSearch,
+              'enablePanAndZoom': widget.enablePanAndZoom,
+              'enableAnnotations': widget.enableAnnotations,
             },
             creationParamsCodec: const StandardMessageCodec(),
             onPlatformViewCreated: _onPlatformViewCreated,
-            // Make sure the view takes all available space
-            gestureRecognizers: const {}, // Let the native view handle all gestures
+            gestureRecognizers: widget.enablePanAndZoom ? const {} : null,
           ),
           if (_isLoading && widget.placeholder != null) widget.placeholder!,
           if (_isLoading && widget.placeholder == null)
