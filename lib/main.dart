@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'flutter_pdf_viewer_plugin.dart';
 
@@ -24,9 +25,14 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class PdfViewerHomeScreen extends StatelessWidget {
+class PdfViewerHomeScreen extends StatefulWidget {
   const PdfViewerHomeScreen({super.key});
 
+  @override
+  State<PdfViewerHomeScreen> createState() => _PdfViewerHomeScreenState();
+}
+
+class _PdfViewerHomeScreenState extends State<PdfViewerHomeScreen> {
   // Define your PDF URL directly here
   final String pdfUrl =
       'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
@@ -441,6 +447,27 @@ class _OnlinePdfViewerScreenState extends State<OnlinePdfViewerScreen> {
       setState(() {
         _currentMatchIndex = index;
       });
+    }
+  }
+
+  @override
+  void dispose() {
+    _clearCache();
+    super.dispose();
+  }
+
+  Future<void> _clearCache() async {
+    try {
+      final cacheDir = await getTemporaryDirectory();
+      final files = cacheDir.listSync();
+
+      for (var file in files) {
+        if (file.path.contains('pdf_')) {
+          await file.delete();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error clearing cache: $e');
     }
   }
 

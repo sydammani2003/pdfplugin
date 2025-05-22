@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+
+
 class NativePdfView extends StatefulWidget {
   /// Path to the PDF file (local asset or file path)
   final String? filePath;
@@ -63,7 +65,7 @@ class NativePdfView extends StatefulWidget {
     this.enableTextSearch = true,
     this.enablePanAndZoom = true,
     this.enableAnnotations = true,
-  })  : assert(filePath != null || url != null,
+  }) : assert(filePath != null || url != null,
             'Either filePath or url must be provided');
 
   @override
