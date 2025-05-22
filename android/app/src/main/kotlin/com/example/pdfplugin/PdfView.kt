@@ -723,19 +723,22 @@ class PdfView @JvmOverloads constructor(
             val focusX = detector.focusX
             val focusY = detector.focusY
             
-            // Save pre-scale values
+            // Save pre-scale values with interpolation
             val unscaledFocusX = (focusX - posX) / oldScale
             val unscaledFocusY = (focusY - posY) / oldScale
             
-            // Apply scale change
-            scaleFactor *= detector.scaleFactor
+            // Apply scale change with smooth interpolation
+            val targetScale = scaleFactor * detector.scaleFactor
+            scaleFactor = oldScale + (targetScale - oldScale) * 0.5f  // Interpolation factor
             
-            // Constrain scale
+            // Constrain scale with smoother bounds
             scaleFactor = scaleFactor.coerceIn(initialScaleFactor * 0.5f, initialScaleFactor * 10.0f)
             
-            // Recalculate position to zoom into focus point
-            posX = focusX - unscaledFocusX * scaleFactor
-            posY = focusY - unscaledFocusY * scaleFactor
+            // Recalculate position with smooth interpolation
+            val targetPosX = focusX - unscaledFocusX * scaleFactor
+            val targetPosY = focusY - unscaledFocusY * scaleFactor
+            posX = posX + (targetPosX - posX) * 0.5f  // Interpolation factor
+            posY = posY + (targetPosY - posY) * 0.5f  // Interpolation factor
             
             // Apply constraints to panning
             constrainPan()
@@ -745,8 +748,10 @@ class PdfView @JvmOverloads constructor(
                 fitToScreen = false
             }
             
-            // Clear cache as scale changed
-            clearResources()
+            // Only clear resources when scale change is significant
+            if (kotlin.math.abs(scaleFactor - oldScale) > 0.1f) {
+                clearResources()
+            }
             
             invalidate()
             return true
