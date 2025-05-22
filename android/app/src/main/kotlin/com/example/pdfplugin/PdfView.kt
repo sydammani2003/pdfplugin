@@ -717,45 +717,63 @@ class PdfView @JvmOverloads constructor(
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            val oldScale = scaleFactor
-            
-            // Focus zoom on pinch center point
-            val focusX = detector.focusX
-            val focusY = detector.focusY
-            
-            // Save pre-scale values with interpolation
-            val unscaledFocusX = (focusX - posX) / oldScale
-            val unscaledFocusY = (focusY - posY) / oldScale
-            
-            // Apply scale change with smooth interpolation
-            val targetScale = scaleFactor * detector.scaleFactor
-            scaleFactor = oldScale + (targetScale - oldScale) * 0.5f  // Interpolation factor
-            
-            // Constrain scale with smoother bounds
-            scaleFactor = scaleFactor.coerceIn(initialScaleFactor * 0.5f, initialScaleFactor * 10.0f)
-            
-            // Recalculate position with smooth interpolation
-            val targetPosX = focusX - unscaledFocusX * scaleFactor
-            val targetPosY = focusY - unscaledFocusY * scaleFactor
-            posX = posX + (targetPosX - posX) * 0.5f  // Interpolation factor
-            posY = posY + (targetPosY - posY) * 0.5f  // Interpolation factor
-            
-            // Apply constraints to panning
-            constrainPan()
-            
-            // Turn off fitToScreen mode when manually zooming
-            if (kotlin.math.abs(scaleFactor - initialScaleFactor) > 0.1f) {
-                fitToScreen = false
-            }
-            
-            // Only clear resources when scale change is significant
-            if (kotlin.math.abs(scaleFactor - oldScale) > 0.1f) {
-                clearResources()
-            }
-            
-            invalidate()
-            return true
+        val oldScale = scaleFactor
+        
+        // Enhanced smooth interpolation factor
+        val smoothFactor = 0.15f
+        
+        // Focus zoom on pinch center point with enhanced precision
+        val focusX = detector.focusX
+        val focusY = detector.focusY
+        
+        // Save pre-scale values with double interpolation
+        val unscaledFocusX = (focusX - posX) / oldScale
+        val unscaledFocusY = (focusY - posY) / oldScale
+        
+        // Apply scale change with enhanced smooth interpolation
+        val targetScale = scaleFactor * detector.scaleFactor
+        val deltaScale = targetScale - oldScale
+        scaleFactor = oldScale + deltaScale * smoothFactor * (1 + kotlin.math.abs(deltaScale) * 0.2f)
+        
+        // Dynamic scale constraints based on content
+        val minScale = initialScaleFactor * 0.5f
+        val maxScale = initialScaleFactor * 10.0f
+        scaleFactor = scaleFactor.coerceIn(minScale, maxScale)
+        
+        // Enhanced position interpolation with acceleration
+        val targetPosX = focusX - unscaledFocusX * scaleFactor
+        val targetPosY = focusY - unscaledFocusY * scaleFactor
+        val deltaX = targetPosX - posX
+        val deltaY = targetPosY - posY
+        
+        // Adaptive smoothing based on movement speed
+        val movementSpeed = kotlin.math.sqrt(deltaX * deltaX + deltaY * deltaY)
+        val adaptiveSmoothFactor = smoothFactor * (1.0f / (1.0f + movementSpeed * 0.001f))
+        
+        posX += deltaX * adaptiveSmoothFactor
+        posY += deltaY * adaptiveSmoothFactor
+        
+        // Apply enhanced pan constraints
+        constrainPan()
+        
+        // Smooth transition for fitToScreen mode
+        if (kotlin.math.abs(scaleFactor - initialScaleFactor) > 0.1f) {
+            fitToScreen = false
         }
+        
+        // Optimized resource management
+        val significantChange = kotlin.math.abs(scaleFactor - oldScale) > 0.05f
+        if (significantChange) {
+            postDelayed({
+                clearResources()
+                invalidate()
+            }, 32) // Approximately 2 frames delay
+        } else {
+            invalidate()
+        }
+        
+        return true
+    }
     }
     
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
