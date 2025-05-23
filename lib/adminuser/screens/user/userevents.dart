@@ -1,8 +1,8 @@
-
 import 'package:flutter/material.dart';
 import 'package:pdfplugin/adminuser/consts/colors.dart';
 import 'package:pdfplugin/adminuser/screens/user/eventsdetails.dart';
 import 'package:pdfplugin/adminuser/widgets/mntxt.dart';
+import 'package:pdfplugin/screen/home_screen.dart';
 
 class EventsScreen extends StatelessWidget {
   const EventsScreen({super.key});
@@ -60,6 +60,18 @@ class EventsScreen extends StatelessWidget {
           'Food & Wine Expo',
           'July 10, 2024',
           '11:00 AM',
+        ),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: () {
+            Navigator.push(context,
+                MaterialPageRoute(builder: (_) => PdfViewerHomeScreen()));
+          },
+          child: toshoweventcard(
+            'Pdfs & Articles',
+            '',
+            '',
+          ),
         ),
       ],
     );
