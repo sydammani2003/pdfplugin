@@ -2,9 +2,10 @@
 // Provides navigation to local PDF viewer and online PDF viewer
 
 import 'package:flutter/material.dart';
+import 'package:pdfplugin/screen/articlescreen.dart';
 import 'local_pdf_viewer_screen.dart';
 import 'online_pdf_viewer_screen.dart';
-import '../widgets/option_card.dart';
+import '../widget/option_card.dart';
 
 class PdfViewerHomeScreen extends StatefulWidget {
   const PdfViewerHomeScreen({super.key});
@@ -42,6 +43,13 @@ class _PdfViewerHomeScreenState extends State<PdfViewerHomeScreen> {
               icon: Icons.cloud_download,
               onTap: () => _openUrlPdf(context, pdfUrl),
             ),
+            const SizedBox(height: 16),
+            OptionCard(
+              title: 'View Article',
+              subtitle: 'Open a Markdown Article',
+              icon: Icons.article,
+              onTap: () => _openArticle(context),
+            ),
           ],
         ),
       ),
@@ -62,6 +70,15 @@ class _PdfViewerHomeScreenState extends State<PdfViewerHomeScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => OnlinePdfViewerScreen(url: url),
+      ),
+    );
+  }
+
+   void _openArticle(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ArticleScreen(),
       ),
     );
   }

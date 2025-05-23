@@ -3,8 +3,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../widgets/pdf_search_overlay.dart';
-import '../widgets/error_view.dart';
+import '../widget/pdf_search_overlay.dart';
+import '../widget/error_view.dart';
 import '../flutter_pdf_viewer_plugin.dart';
 
 class LocalPdfViewerScreen extends StatefulWidget {

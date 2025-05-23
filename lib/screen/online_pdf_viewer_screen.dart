@@ -3,7 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import '../widgets/pdf_search_overlay.dart';
+import '../widget/pdf_search_overlay.dart';
 import '../flutter_pdf_viewer_plugin.dart';
 
 class OnlinePdfViewerScreen extends StatefulWidget {
