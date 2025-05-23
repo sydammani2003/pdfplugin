@@ -10,10 +10,8 @@ class ArticleScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('PDF Technology Overview'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Markdown(
-          data: '''
+      body: Markdown(
+        data: '''
 # Understanding PDF Technology
 
 ## Introduction to PDF
@@ -100,8 +98,9 @@ PDF technology continues to evolve while maintaining its core purpose: ensuring 
 ---
 *This article provides a general overview of PDF technology and its applications in modern digital environments.*
 ''',
-          selectable: true,
-        ),
+        selectable: true,
+        padding: const EdgeInsets.all(16.0),
+        physics: const BouncingScrollPhysics(),
       ),
     );
   }
