@@ -1,6 +1,5 @@
 // ignore_for_file: library_private_types_in_public_api, deprecated_member_use, use_build_context_synchronously
 
-
 import 'package:flutter/material.dart';
 import 'package:pdfplugin/adminuser/consts/colors.dart';
 import 'package:pdfplugin/adminuser/screens/admin/adminhome.dart';
@@ -23,36 +22,36 @@ class _LoginScreenState extends State<LoginScreen> {
   TextEditingController un = TextEditingController();
   TextEditingController pw = TextEditingController();
 
-  Future<void> saveLoginCredentials() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('adminusername', 'admin');
-    await prefs.setString('adminpassword', 'adminpass');
-    await prefs.setString('userusername', 'user');
-    await prefs.setString('userpassword', 'userpass');
-  }
+  // Future<void> saveLoginCredentials() async {
+  //   final prefs = await SharedPreferences.getInstance();
+  //   await prefs.setString('adminusername', 'admin');
+  //   await prefs.setString('adminpassword', 'adminpass');
+  //   await prefs.setString('userusername', 'user');
+  //   await prefs.setString('userpassword', 'userpass');
+  // }
 
-  Future<String> getLoginCredentials(String username, String password) async {
-    final prefs = await SharedPreferences.getInstance();
-    final adminusername = prefs.getString('adminusername');
-    final adminpassword = prefs.getString('adminpassword');
-    final userusername = prefs.getString('userusername');
-    final userpassword = prefs.getString('userpassword');
+  // Future<String> getLoginCredentials(String username, String password) async {
+  //   final prefs = await SharedPreferences.getInstance();
+  //   final adminusername = prefs.getString('adminusername');
+  //   final adminpassword = prefs.getString('adminpassword');
+  //   final userusername = prefs.getString('userusername');
+  //   final userpassword = prefs.getString('userpassword');
 
-    if (adminusername == username && adminpassword == password) {
-      return 'admin';
-    } else if (userusername == username && userpassword == password) {
-      return 'user';
-    } else {
-      return 'Invalid Login Credentials';
-    }
-  }
+  //   if (adminusername == username && adminpassword == password) {
+  //     return 'admin';
+  //   } else if (userusername == username && userpassword == password) {
+  //     return 'user';
+  //   } else {
+  //     return 'Invalid Login Credentials';
+  //   }
+  // }
 
   String s = '';
 
   @override
   void initState() {
     super.initState();
-    saveLoginCredentials();
+    // saveLoginCredentials();
   }
 
   @override
@@ -169,17 +168,11 @@ class _LoginScreenState extends State<LoginScreen> {
         const SizedBox(height: 24),
         Custombutton(
           txt: 'Login',
-          call: () async {
-            String a = await getLoginCredentials(un.text, pw.text);
-
-            setState(() {
-              s = a;
-            });
-
-            if (s == 'admin') {
+          call: () {
+            if (un.text == 'admin') {
               Navigator.push(
                   context, MaterialPageRoute(builder: (_) => HomeScreen()));
-            } else if (s == 'user') {
+            } else if (un.text == 'user') {
               Navigator.push(
                   context, MaterialPageRoute(builder: (_) => EventsScreen()));
             } else {
@@ -247,16 +240,11 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 24),
               Custombutton(
                 txt: 'Login',
-                call: () async {
-                  String a = await getLoginCredentials(un.text, pw.text);
-                  setState(() {
-                    s = a;
-                  });
-
-                  if (s == 'admin') {
+                call: () {
+                  if (un.text == 'admin') {
                     Navigator.push(context,
                         MaterialPageRoute(builder: (_) => HomeScreen()));
-                  } else if (s == 'user') {
+                  } else if (un.text == 'user') {
                     Navigator.push(context,
                         MaterialPageRoute(builder: (_) => EventsScreen()));
                   } else {
@@ -337,16 +325,11 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 24),
               Custombutton(
                 txt: 'Login',
-                call: () async {
-                  String a = await getLoginCredentials(un.text, pw.text);
-                  setState(() {
-                    s = a;
-                  });
-
-                  if (s == 'admin') {
+                call: () {
+                  if (un.text == 'admin') {
                     Navigator.push(context,
                         MaterialPageRoute(builder: (_) => HomeScreen()));
-                  } else if (s == 'user') {
+                  } else if (un.text == 'user') {
                     Navigator.push(context,
                         MaterialPageRoute(builder: (_) => EventsScreen()));
                   } else {
